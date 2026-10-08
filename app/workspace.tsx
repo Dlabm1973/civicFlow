@@ -79,6 +79,7 @@ type CaseDetail = {
   documents: Record<string, any>[];
   tasks: Record<string, any>[];
   events: Record<string, any>[];
+  notification?: { id: string; status: string; error?: string | null; updated_at: string } | null;
 };
 
 const implementationModules = [
@@ -459,6 +460,29 @@ function StaffDesk({ refreshKey }: { refreshKey: number }) {
   const [detail, setDetail] = useState<CaseDetail | null>(null);
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [exportDataset, setExportDataset] = useState("cases");
+  const [exporting, setExporting] = useState(false);
+
+  async function exportRecords(filtered: boolean) {
+    setExporting(true);
+    setNotice("");
+    try {
+      const params = new URLSearchParams({ dataset: exportDataset });
+      if (filtered) params.set("query", query);
+      const response = await fetch(`/api/cases/export?${params}`);
+      if (!response.ok) throw new Error(await response.text());
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || `civicflow-export.${exportDataset === "full" ? "json" : "csv"}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice("Export downloaded.");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to export the records."); }
+    finally { setExporting(false); }
+  }
 
   async function loadCases(search = query) {
     const response = await fetch(`/api/cases?query=${encodeURIComponent(search)}`, { cache: "no-store" });
@@ -486,6 +510,7 @@ function StaffDesk({ refreshKey }: { refreshKey: number }) {
   async function action(actionName: string) {
     if (!selectedId) return;
     setLoading(true);
+    setNotice("");
     try {
       const response = await fetch(`/api/cases/${selectedId}`, {
         method: "PATCH",
@@ -496,8 +521,9 @@ function StaffDesk({ refreshKey }: { refreshKey: number }) {
         setDetail(await response.json());
         setReason("");
         await loadCases();
-      }
-    } finally {
+        setNotice("Case updated. Check the WhatsApp notification status below.");
+      } else { const data = await response.json() as { error?: string }; setNotice(data.error || "Unable to update the case."); }
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to update the case."); } finally {
       setLoading(false);
     }
   }
@@ -528,6 +554,22 @@ function StaffDesk({ refreshKey }: { refreshKey: number }) {
         ))}
       </div>
 
+      {notice && <p role="status" className="rounded-xl border border-slate-200 bg-white p-3 text-sm">{notice}</p>}
+      <Card className="rounded-2xl border-slate-200 shadow-sm">
+        <CardContent className="flex flex-wrap items-center gap-3 p-4">
+          <label className="flex flex-wrap items-center gap-2 text-sm font-semibold">Bulk export
+            <select value={exportDataset} onChange={event => setExportDataset(event.target.value)} className="rounded-lg border border-slate-300 bg-white p-2 text-sm">
+              <option value="cases">Case summary (CSV)</option>
+              <option value="households">Household members (CSV)</option>
+              <option value="incomes">Income records (CSV)</option>
+              <option value="full">Full case records (JSON)</option>
+            </select>
+          </label>
+          <Button variant="outline" disabled={exporting} onClick={() => void exportRecords(false)}>{exporting ? "Exporting…" : "Export all"}</Button>
+          <Button variant="outline" disabled={exporting || !query.trim()} onClick={() => void exportRecords(true)}>Export search results</Button>
+          <p className="w-full text-sm text-slate-500">Exports include all matching records, beyond the 100 shown below. Document exports contain file details; open documents from the case to download the files.</p>
+        </CardContent>
+      </Card>
       <Card className="overflow-hidden rounded-[24px] border-slate-200 shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -681,10 +723,18 @@ function StaffDesk({ refreshKey }: { refreshKey: number }) {
                   <p className="mt-1 text-sm leading-6 text-slate-500">This sandbox records recommendations. It does not grant final decision authority.</p>
                   <Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason or instruction" className="mt-4 h-10 rounded-xl" />
                   <div className="mt-3 flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" onClick={() => void action("RETURN_ASSESSMENT")} disabled={loading}>Mark under review</Button>
                     <Button variant="outline" size="sm" onClick={() => void action("REQUEST_INFORMATION")} disabled={loading}>Request information</Button>
                     <Button variant="outline" size="sm" onClick={() => void action("ORDER_SITE_VISIT")} disabled={loading}>Order site visit</Button>
                     <Button size="sm" className="bg-[#087f83] hover:bg-[#066a6e]" onClick={() => void action("RECOMMEND_APPROVAL")} disabled={loading}>Recommend approval</Button>
                     <Button variant="destructive" size="sm" onClick={() => void action("RECOMMEND_DECLINE")} disabled={loading}>Recommend decline</Button>
+                  </div>
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+                    <p className="font-semibold">WhatsApp notification</p>
+                    <p className="mt-1">{detail.notification ? ({ ACCEPTED: "Accepted by Meta; awaiting delivery confirmation", DELIVERED: "Delivered", READ: "Read", FAILED: "Failed to send", WAITING_FOR_REPLY: "Waiting for the resident to message Khula, or an approved notification template", NO_WHATSAPP_SESSION: "No linked WhatsApp number for this case", PENDING: "Queued", SENDING: "Sending", SUPERSEDED: "Replaced by a newer update" } as Record<string, string>)[detail.notification.status] || detail.notification.status : "No recommendation notification recorded yet"}</p>
+                    {detail.notification?.error && <p className="mt-1 text-amber-800">{detail.notification.error}</p>}
+                    {detail.notification && ["FAILED", "WAITING_FOR_REPLY", "PENDING", "NO_WHATSAPP_SESSION"].includes(detail.notification.status) && <Button className="mt-2" variant="outline" size="sm" disabled={loading} onClick={() => void action("RETRY_NOTIFICATION")}>Retry notification</Button>}
+                    <p className="mt-2 text-slate-500">Messages begin “Recommendation: …”. Recommendations remain subject to the authorised official’s final decision.</p>
                   </div>
                 </div>
               </div>

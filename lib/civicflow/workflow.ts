@@ -155,7 +155,7 @@ async function persist(
     caseId: session.case_id,
     context,
   });
-  if (session.case_id) {
+  if (session.case_id && !["MAIN_MENU", "STATUS_REFERENCE", "LANGUAGE"].includes(step)) {
     await updateCase(session.case_id, {
       step,
       progress: PROGRESS[step] ?? 0,
@@ -190,7 +190,7 @@ async function replyForStep(
     },
     MAIN_MENU: {
       message: "What would you like to do?",
-      choices: MENU,
+      choices: context.resumeStep ? [{ id: "MENU_CONTINUE", label: "Continue my application" }, ...MENU] : MENU,
       inputType: "none",
     },
     MOBILE: {
@@ -605,6 +605,7 @@ async function processChatRaw(input: ChatInput): Promise<ChatReply> {
   }
 
   if (value === "MENU_HOME") {
+    if (!["MAIN_MENU", "LANGUAGE", "STATUS_REFERENCE"].includes(session.workflow_step)) context.resumeStep = session.workflow_step;
     await persist(session, "MAIN_MENU", context);
     return replyForStep({ ...session, workflow_step: "MAIN_MENU" }, context);
   }
@@ -636,11 +637,16 @@ async function processChatRaw(input: ChatInput): Promise<ChatReply> {
       return replyForStep({ ...session, workflow_step: "MAIN_MENU" }, context);
     }
     case "MAIN_MENU": {
+      if (value === "MENU_CONTINUE" || (value === "MENU_APPLY" && session.case_id && context.resumeStep)) {
+        const resumeStep = context.resumeStep || "SUBMITTED";
+        await persist(session, resumeStep, context);
+        return withWhatsAppRequirements({ ...session, workflow_step: resumeStep }, await replyForStep({ ...session, workflow_step: resumeStep }, context, resumeStep === "REVIEW" ? { summary: summary(context) } : undefined));
+      }
       if (value === "MENU_HELP") {
         return replyForStep(session, context, {
           message:
             "Khula can save an application, collect supporting documents and return information to the same case. It does not grant or refuse benefits. Choose an option to continue.",
-          choices: MENU,
+          choices: context.resumeStep ? [{ id: "MENU_CONTINUE", label: "Continue my application" }, ...MENU] : MENU,
         });
       }
       if (["MENU_STATUS", "MENU_CHANGE", "MENU_APPEAL", "MENU_UPLOAD"].includes(value)) {

@@ -153,3 +153,15 @@ export const auditEvents = sqliteTable("audit_events", {
   correlationId: text("correlation_id").notNull(),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("idx_audit_case_created").on(table.caseId, table.createdAt)]);
+
+export const whatsappNotifications = sqliteTable("whatsapp_notifications", {
+  id: text("id").primaryKey(),
+  caseId: text("case_id").notNull(),
+  sessionId: text("session_id"),
+  caseState: text("case_state").notNull(),
+  status: text("status").notNull().default("PENDING"),
+  providerMessageId: text("provider_message_id"),
+  error: text("error"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, table => [index("idx_notifications_case").on(table.caseId, table.createdAt), uniqueIndex("idx_notifications_provider").on(table.providerMessageId)]);

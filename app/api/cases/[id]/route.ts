@@ -1,3 +1,4 @@
+import { dispatchRecommendation, latestNotification, queueRecommendation } from "@/lib/civicflow/notifications";
 import { NextResponse } from "next/server";
 import { addTask, audit, database, updateCase } from "@/lib/civicflow/repository";
 import { requireStaff } from "@/lib/civicflow/staff-auth";
@@ -23,6 +24,7 @@ async function details(id: string) {
     documents: documents.results ?? [],
     tasks: tasks.results ?? [],
     events: events.results ?? [],
+    notification: await latestNotification(id),
   };
 }
 
@@ -46,6 +48,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { id } = await params;
     const body = (await request.json()) as { action?: string; reason?: string };
     const action = body.action || "";
+    const existing = await database().prepare("SELECT current_state FROM cases WHERE id = ?").bind(id).first<{ current_state: string }>();
+    if (!existing) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+    if (action === "RETRY_NOTIFICATION") {
+      const pending = await latestNotification(id);
+      if (pending) await dispatchRecommendation(pending.id);
+      return NextResponse.json(await details(id));
+    }
     const actionMap: Record<string, { state: string; queue: string; event: string }> = {
       REQUEST_INFORMATION: { state: "INFORMATION_REQUIRED", queue: "CASEWORK", event: "INFORMATION_REQUESTED" },
       ORDER_SITE_VISIT: { state: "SITE_VISIT_REQUIRED", queue: "FIELD_VERIFICATION", event: "SITE_VISIT_REQUESTED" },
@@ -71,6 +80,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       entityId: id,
       detail: { action, reason: body.reason || null },
     });
+    if (existing.current_state !== target.state) await queueRecommendation(id, target.state);
     return NextResponse.json(await details(id));
   } catch (error) {
     if (error instanceof Response) return error;

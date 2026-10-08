@@ -31,6 +31,7 @@ export type PersonDraft = {
 };
 
 export type WorkflowContext = {
+  resumeStep?: string;
   flow?: string;
   language?: string;
   mobile?: string;

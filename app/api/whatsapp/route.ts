@@ -1,4 +1,6 @@
-import { localizeReply, translate } from "@/lib/civicflow/languages";
+import { flushRecommendations, receiveDeliveryStatus } from "@/lib/civicflow/notifications";
+import { sendReply, graphOrigin } from "@/lib/civicflow/whatsapp";
+import { translate } from "@/lib/civicflow/languages";
 import { env } from "cloudflare:workers";
 import { processChat } from "@/lib/civicflow/workflow";
 import { addMessage, database, findSession, getRequirements, parseContext, saveSession } from "@/lib/civicflow/repository";
@@ -6,14 +8,6 @@ import { storeDocument } from "@/lib/civicflow/documents";
 import type { ChatReply } from "@/lib/civicflow/types";
 
 export const dynamic = "force-dynamic";
-
-function graphOrigin() {
-  const version = env.WHATSAPP_GRAPH_VERSION;
-  if (!version || !/^v\d+\.\d+$/.test(version)) {
-    throw new Error("WHATSAPP_GRAPH_VERSION is not configured");
-  }
-  return `https://graph.facebook.com/${version}`;
-}
 
 async function verifySignature(raw: ArrayBuffer, signature: string | null) {
   if (!env.META_APP_SECRET) return false;
@@ -29,98 +23,6 @@ async function verifySignature(raw: ArrayBuffer, signature: string | null) {
   if (!/^[0-9a-f]{64}$/i.test(supplied)) return false;
   const bytes = new Uint8Array(supplied.match(/.{2}/g)!.map((part) => Number.parseInt(part, 16)));
   return crypto.subtle.verify("HMAC", key, bytes, raw);
-}
-
-function withReference(reply: ChatReply) {
-  const summary = reply.summary
-    ? "\n\n" + Object.entries(reply.summary).map(([label, value]) => `${label}: ${value ?? translate("Not supplied", reply.language)}`).join("\n")
-    : "";
-  const text = reply.message + summary;
-  return reply.caseReference ? `${text}\n\n${translate("Reference", reply.language)}: ${reply.caseReference}` : text;
-}
-
-async function sendReply(to: string, reply: ChatReply) {
-  if (!env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
-    throw new Error("WhatsApp sending credentials are not configured");
-  }
-  reply = localizeReply(reply);
-  const fullText = withReference(reply);
-  const hasChoices = Boolean(reply.choices?.length);
-  // Keep the complete review and instructions visible before a short interactive menu.
-  if (fullText.length > (hasChoices ? 1024 : 4096)) {
-    for (let start = 0; start < fullText.length; start += 4000) {
-      await sendPayload({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { body: fullText.slice(start, start + 4000) } });
-    }
-    if (!hasChoices) return;
-  }
-  const text = fullText.length > 1024 && hasChoices ? translate("Choose an option to continue.", reply.language) : fullText;
-  let payload: Record<string, unknown> = {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to,
-    type: "text",
-    text: { body: text },
-  };
-  if (reply.choices?.length && reply.choices.length <= 3) {
-    payload = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "button",
-        body: { text: text.slice(0, 1024) },
-        action: {
-          buttons: reply.choices.map((choice) => ({
-            type: "reply",
-            reply: { id: choice.id, title: choice.label.slice(0, 20) },
-          })),
-        },
-      },
-    };
-  } else if (reply.choices?.length) {
-    payload = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "list",
-        body: { text: text.slice(0, 1024) },
-        action: {
-          button: translate("Choose an option", reply.language),
-          sections: [
-            {
-              title: "Khula",
-              rows: reply.choices.slice(0, 10).map((choice) => ({
-                id: choice.id,
-                title: choice.label.slice(0, 24),
-                description: (choice.description || choice.label).slice(0, 72),
-              })),
-            },
-          ],
-        },
-      },
-    };
-  }
-  await sendPayload(payload);
-}
-
-async function sendPayload(payload: Record<string, unknown>) {
-  const response = await fetch(
-    `${graphOrigin()}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.WHATSAPP_ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    }
-  );
-  if (!response.ok) {
-    throw new Error(`WhatsApp send failed with status ${response.status}`);
-  }
 }
 
 async function downloadMedia(mediaId: string) {
@@ -173,6 +75,7 @@ export async function POST(request: Request) {
     const changes = (body.entry || []).flatMap((entry: any) => entry.changes || []);
     for (const change of changes) {
       if (!env.WHATSAPP_PHONE_NUMBER_ID || change.value?.metadata?.phone_number_id !== env.WHATSAPP_PHONE_NUMBER_ID) continue;
+      for (const status of change.value?.statuses || []) await receiveDeliveryStatus(status);
       const messages = change.value?.messages || [];
       for (const message of messages) {
         const from = String(message.from || "");
@@ -274,9 +177,10 @@ export async function POST(request: Request) {
           message.text?.body ||
           message.interactive?.button_reply?.id ||
           message.interactive?.list_reply?.id ||
+          message.button?.payload ||
           "";
         const action =
-          message.interactive?.button_reply?.id || message.interactive?.list_reply?.id;
+          message.interactive?.button_reply?.id || message.interactive?.list_reply?.id || message.button?.payload;
         const reply = await processChat({
           channelType: "WHATSAPP",
           channelIdentifier: from,
@@ -285,6 +189,7 @@ export async function POST(request: Request) {
           providerMessageId,
         });
         await sendReply(from, reply);
+        await flushRecommendations(reply.sessionId);
       }
     }
   } catch (error) {
