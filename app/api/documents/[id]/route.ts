@@ -34,3 +34,16 @@ export async function GET(
   }
 }
 
+
+export async function PATCH(request: Request, {params}: {params: Promise<{id:string}>}) {
+  try {
+    const actor = requireStaff(request);
+    const {id} = await params;
+    const {reviewDocument} = await import('@/lib/civicflow/review');
+    await reviewDocument(id, actor, await request.json());
+    return Response.json({ok:true});
+  } catch(error) {
+    if(error instanceof Response) return error;
+    return Response.json({error:'Unable to save basic review'}, {status:500});
+  }
+}

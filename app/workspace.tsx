@@ -1,5 +1,6 @@
 "use client";
 
+import {DocumentReview, VettingControls} from "./review-controls";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -79,6 +80,9 @@ type CaseDetail = {
   documents: Record<string, any>[];
   tasks: Record<string, any>[];
   events: Record<string, any>[];
+  checklists: Record<string,string[]>;
+  handoffs: any[];
+  notifications: any[];
   notification?: { id: string; status: string; error?: string | null; updated_at: string } | null;
 };
 
@@ -428,7 +432,7 @@ function ResidentWorkspace({ onCaseChanged }: { onCaseChanged: () => void }) {
             </div>
             <div className="flex gap-3">
               <UserRoundCheck className="mt-1 size-4 shrink-0 text-[#087f83]" />
-              <p>Khula screens and routes. An authorised official makes the decision.</p>
+              <p>Khula collects documents and checks completeness and readability. The external system or authorised manual reviewer performs legal vetting and returns the decision.</p>
             </div>
           </CardContent>
         </Card>
@@ -651,7 +655,7 @@ function StaffDesk({ refreshKey }: { refreshKey: number }) {
                     ["Queue", statusLabel(detail.case.assigned_queue)],
                     ["Channel", statusLabel(detail.case.channel)],
                     ["Progress", `${detail.case.progress}%`],
-                    ["Candidate", statusLabel(detail.case.classification_candidate || "Not evaluated")],
+                    ["Review scope", "Completeness and legibility only"],
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-2xl border border-slate-200 bg-white p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
@@ -671,11 +675,12 @@ function StaffDesk({ refreshKey }: { refreshKey: number }) {
                     {detail.requirements.map((item) => {
                       const document = detail.documents.find((doc) => doc.requirement_id === item.id);
                       return (
-                        <div key={item.id} className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+                        <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                           <div>
                             <p className="font-semibold text-slate-800">{item.label}</p>
                             <div className="mt-2"><StatePill value={item.status} /></div>
                           </div>
+                          {document && <DocumentReview document={document} checks={detail.checklists[item.id] || []} reload={() => loadDetail(detail.case.id)} />}
                           {document && (
                             <Button variant="outline" size="sm" className="rounded-lg" asChild>
                               <a href={`/api/documents/${document.id}`} target="_blank" rel="noreferrer">Open</a>
@@ -719,22 +724,18 @@ function StaffDesk({ refreshKey }: { refreshKey: number }) {
                 </Tabs>
 
                 <div className="rounded-[22px] border border-slate-200 bg-white p-4">
-                  <h3 className="font-bold text-[#0a2b3a]">Assessment actions</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-500">This sandbox records recommendations. It does not grant final decision authority.</p>
-                  <Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason or instruction" className="mt-4 h-10 rounded-xl" />
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={() => void action("RETURN_ASSESSMENT")} disabled={loading}>Mark under review</Button>
-                    <Button variant="outline" size="sm" onClick={() => void action("REQUEST_INFORMATION")} disabled={loading}>Request information</Button>
-                    <Button variant="outline" size="sm" onClick={() => void action("ORDER_SITE_VISIT")} disabled={loading}>Order site visit</Button>
-                    <Button size="sm" className="bg-[#087f83] hover:bg-[#066a6e]" onClick={() => void action("RECOMMEND_APPROVAL")} disabled={loading}>Recommend approval</Button>
-                    <Button variant="destructive" size="sm" onClick={() => void action("RECOMMEND_DECLINE")} disabled={loading}>Recommend decline</Button>
-                  </div>
+                  <h3 className="font-bold text-[#0a2b3a]">Basic document review</h3>
+                  <p className="mt-1 text-sm text-slate-500">CivicFlow checks required details are present and readable. Identity validity, authenticity and legal eligibility are checked by the receiving reviewer.</p>
+                  <Input value={reason} onChange={event => setReason(event.target.value)} placeholder="Information requested" className="mt-4" />
+                  <Button className="mt-2" variant="outline" size="sm" onClick={() => void action("REQUEST_INFORMATION")} disabled={loading}>Request information</Button>
+                  <div className="mt-4"><VettingControls caseId={detail.case.id} entries={detail.handoffs} reload={() => loadDetail(detail.case.id)} /></div>
                   <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
                     <p className="font-semibold">WhatsApp notification</p>
-                    <p className="mt-1">{detail.notification ? ({ ACCEPTED: "Accepted by Meta; awaiting delivery confirmation", DELIVERED: "Delivered", READ: "Read", FAILED: "Failed to send", WAITING_FOR_REPLY: "Waiting for the resident to message Khula, or an approved notification template", NO_WHATSAPP_SESSION: "No linked WhatsApp number for this case", PENDING: "Queued", SENDING: "Sending", SUPERSEDED: "Replaced by a newer update" } as Record<string, string>)[detail.notification.status] || detail.notification.status : "No recommendation notification recorded yet"}</p>
+                    <p className="mt-1">{detail.notification ? ({ ACCEPTED: "Accepted by Meta; awaiting delivery confirmation", DELIVERED: "Delivered", READ: "Read", FAILED: "Failed to send", WAITING_FOR_REPLY: "Waiting for the resident to message Khula, or an approved notification template", NO_WHATSAPP_SESSION: "No linked WhatsApp number for this case", PENDING: "Queued", SENDING: "Sending", SUPERSEDED: "Replaced by a newer update" } as Record<string, string>)[detail.notification.status] || detail.notification.status : "No application status notification recorded yet"}</p>
                     {detail.notification?.error && <p className="mt-1 text-amber-800">{detail.notification.error}</p>}
                     {detail.notification && ["FAILED", "WAITING_FOR_REPLY", "PENDING", "NO_WHATSAPP_SESSION"].includes(detail.notification.status) && <Button className="mt-2" variant="outline" size="sm" disabled={loading} onClick={() => void action("RETRY_NOTIFICATION")}>Retry notification</Button>}
-                    <p className="mt-2 text-slate-500">Messages begin “Recommendation: …”. Recommendations remain subject to the authorised official’s final decision.</p>
+                    <p className="mt-2 text-slate-500">Each application status change is queued. Returned decisions begin “Outcome: …” and identify the external or manual reviewer as the decision source.</p>
+                    {detail.notifications.map((notification,index) => <p key={index} className="mt-2 text-xs">{statusLabel(notification.case_state)} · {statusLabel(notification.status)} · {new Date(notification.created_at).toLocaleString("en-ZA")}</p>)}
                   </div>
                 </div>
               </div>

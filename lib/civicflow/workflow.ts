@@ -36,6 +36,7 @@ const LANGUAGES: Choice[] = [
 ];
 
 const MENU: Choice[] = [
+  { id: "MENU_LANGUAGE", label: "Change language" },
   { id: "MENU_APPLY", label: "Apply for indigent support" },
   { id: "MENU_RENEW", label: "Renew or verify my support" },
   { id: "MENU_RATES", label: "Property-rates rebate" },
@@ -155,7 +156,7 @@ async function persist(
     caseId: session.case_id,
     context,
   });
-  if (session.case_id && !["MAIN_MENU", "STATUS_REFERENCE", "LANGUAGE"].includes(step)) {
+  if (session.case_id && !["MAIN_MENU", "STATUS_REFERENCE", "LANGUAGE", "LANGUAGE_CHANGE"].includes(step)) {
     await updateCase(session.case_id, {
       step,
       progress: PROGRESS[step] ?? 0,
@@ -182,6 +183,7 @@ async function replyForStep(
 
   const applicant = context.people?.[0];
   const prompts: Record<string, Partial<ChatReply>> = {
+    LANGUAGE_CHANGE: { message: "Choose your language.", choices: LANGUAGES, inputType: "none" },
     LANGUAGE: {
       message:
         "Welcome to Khula, Govan Mbeki Local Municipality’s digital assistant. I can help with municipal financial relief. Choose your language.",
@@ -360,7 +362,7 @@ async function replyForStep(
     },
     REVIEW: {
       message:
-        "Review the application summary. Submission freezes this version. A municipal official must still review the evidence and complete the required certification.",
+        "Review the application summary. CivicFlow checks document completeness and readability. Legal vetting and the application decision are handled separately.",
       choices: [
         { id: "SUBMIT", label: "Confirm and submit" },
         { id: "REVIEW_HELP", label: "I need help before submitting" },
@@ -369,7 +371,7 @@ async function replyForStep(
     },
     SUBMITTED: {
       message:
-        "Your application has been submitted. It is waiting for municipal certification and assessment. A screening result is not a final decision.",
+        "Your application has been submitted for basic document review. The external vetting system or authorised manual reviewer will decide the outcome.",
       choices: [{ id: "MENU_STATUS", label: "Check application status" }],
       inputType: "none",
     },
@@ -390,7 +392,7 @@ async function withWhatsAppRequirements(
     return reply;
   }
   const requirements = await getRequirements(session.case_id);
-  const outstanding = requirements.filter((item) => item.status === "OUTSTANDING");
+  const outstanding = requirements.filter((item) => ["OUTSTANDING", "BASIC_REUPLOAD_REQUIRED"].includes(item.status));
   reply.requirements = requirements;
   reply.choices = [
     ...outstanding.slice(0, 9).map((item) => ({
@@ -499,7 +501,7 @@ function summary(context: WorkflowContext) {
     "Property use": context.propertyUse || null,
     "Adult occupants": context.people?.length || 0,
     "Declared gross monthly household income": `R ${(totalCents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2 })}`,
-    "Policy result": "Not decided — municipal review required",
+    "Vetting result": "Awaiting external or authorised manual reviewer",
   };
 }
 
@@ -523,10 +525,15 @@ async function handleReferenceRoute(
       inputType: "text",
     });
   }
+  if (route === "upload") {
+    context.selectedRequirementId = undefined;
+    await persist({...session,case_id:String(found.id)}, "DOCUMENTS", context);
+    return withWhatsAppRequirements({...session,case_id:String(found.id),workflow_step:"DOCUMENTS"}, await replyForStep({...session,case_id:String(found.id),workflow_step:"DOCUMENTS"},context));
+  }
   if (route === "status") {
     return replyForStep(session, context, {
       step: "STATUS_REFERENCE",
-      message: `${found.reference} is currently “${String(found.current_state).replaceAll("_", " ").toLowerCase()}”. The case was last updated ${new Date(String(found.updated_at)).toLocaleDateString("en-ZA")}.`,
+      message: `${found.reference}\n${(await import("./notifications")).recommendationText(String(found.current_state),context.language || "en")}`,
       choices: [{ id: "MENU_HOME", label: "Return to main menu" }],
       inputType: "none",
       progress: Number(found.progress || 0),
@@ -598,14 +605,19 @@ async function processChatRaw(input: ChatInput): Promise<ChatReply> {
   const selectedLanguage = LANGUAGE_CODES[value] || namedLanguage;
   if (selectedLanguage) {
     context.language = selectedLanguage;
-    const resumeStep = session.workflow_step === "LANGUAGE" ? "MAIN_MENU" : session.workflow_step;
+    const resumeStep = ["LANGUAGE", "LANGUAGE_CHANGE"].includes(session.workflow_step) ? "MAIN_MENU" : session.workflow_step;
     await persist(session, resumeStep, context);
     if (session.case_id) await database().prepare("UPDATE cases SET language = ? WHERE id = ?").bind(selectedLanguage, session.case_id).run();
     return withWhatsAppRequirements({ ...session, workflow_step: resumeStep }, await replyForStep({ ...session, workflow_step: resumeStep }, context, resumeStep === "REVIEW" ? { summary: summary(context) } : undefined));
   }
 
+  if (value === "MENU_LANGUAGE") {
+    await persist(session, "LANGUAGE_CHANGE", context);
+    return replyForStep({ ...session, workflow_step: "LANGUAGE_CHANGE" }, context);
+  }
+
   if (value === "MENU_HOME") {
-    if (!["MAIN_MENU", "LANGUAGE", "STATUS_REFERENCE"].includes(session.workflow_step)) context.resumeStep = session.workflow_step;
+    if (!["MAIN_MENU", "LANGUAGE", "LANGUAGE_CHANGE", "STATUS_REFERENCE"].includes(session.workflow_step)) context.resumeStep = session.workflow_step;
     await persist(session, "MAIN_MENU", context);
     return replyForStep({ ...session, workflow_step: "MAIN_MENU" }, context);
   }
@@ -833,7 +845,7 @@ async function processChatRaw(input: ChatInput): Promise<ChatReply> {
       return replyForStep({ ...session, workflow_step: "IDENTITY_NUMBER" }, context);
     }
     case "IDENTITY_NUMBER": {
-      if (raw.length < 5) return replyForStep(session, context, { message: "Enter a valid identity reference." });
+      if (!raw.trim()) return replyForStep(session, context, { message: "Enter the identity reference shown on your document." });
       context.identityMasked = maskValue(raw, 4);
       if (context.people?.[0]) {
         context.people[0].identityType = context.identityType;
@@ -1090,7 +1102,7 @@ async function processChatRaw(input: ChatInput): Promise<ChatReply> {
         const requirementId = raw.slice(4);
         const requirements = await getRequirements(session.case_id!);
         const selected = requirements.find(
-          (item) => item.id === requirementId && item.status === "OUTSTANDING"
+          (item) => item.id === requirementId && ["OUTSTANDING", "BASIC_REUPLOAD_REQUIRED"].includes(item.status)
         );
         if (!selected) {
           return withWhatsAppRequirements(session, await replyForStep(session, context, {
@@ -1113,13 +1125,18 @@ async function processChatRaw(input: ChatInput): Promise<ChatReply> {
         }));
       }
       const requirements = await getRequirements(session.case_id!);
-      const outstanding = requirements.filter((item) => item.mandatory && item.status === "OUTSTANDING");
+      const outstanding = requirements.filter((item) => item.mandatory && ["OUTSTANDING", "BASIC_REUPLOAD_REQUIRED"].includes(item.status));
       if (outstanding.length) {
         return replyForStep(session, context, {
           message: `I still need ${outstanding.length} item${outstanding.length === 1 ? "" : "s"}. Upload each outstanding item before continuing.`,
           requirements,
           choices: [{ id: "DOC_DONE", label: "Check again" }],
         });
+      }
+      const submitted = await database().prepare("SELECT submitted_at FROM cases WHERE id=?").bind(session.case_id).first<{submitted_at:string | null}>();
+      if (submitted?.submitted_at) {
+        await persist(session,"SUBMITTED",context);
+        return replyForStep({...session,workflow_step:"SUBMITTED"},context);
       }
       await updateCase(session.case_id!, { state: "READY_FOR_SUBMISSION" });
       await persist(session, "REVIEW", context);
@@ -1144,23 +1161,18 @@ async function processChatRaw(input: ChatInput): Promise<ChatReply> {
       context.reviewConfirmed = true;
       const snapshotHash = await sha256(JSON.stringify(context));
       await updateCase(session.case_id!, {
-        state: "OFFICIAL_CERTIFICATION_REQUIRED",
+        state: "DOCUMENTS_UNDER_REVIEW",
         step: "SUBMITTED",
         progress: 100,
-        assignedQueue: "OFFICIAL_CERTIFICATION",
-        classificationCandidate:
-          context.capacity === "ESTATE" || context.capacity === "HEIR"
-            ? "ESTATE_INDIGENT_CANDIDATE"
-            : context.hasMunicipalAccount === "NO"
-              ? "MANUAL_CLASSIFICATION_REQUIRED"
-              : "NO_CLASSIFICATION_YET",
+        assignedQueue: "DOCUMENT_BASIC_REVIEW",
+        classificationCandidate: "NOT_ASSESSED_BY_CIVICFLOW",
         submitted: true,
       });
       await addTask({
         caseId: session.case_id!,
-        type: "OFFICIAL_CERTIFICATION",
-        title: "Authorised official certification and explanation",
-        queue: "OFFICIAL_CERTIFICATION",
+        type: "DOCUMENT_BASIC_REVIEW",
+        title: "Check document completeness and readability; no legal vetting",
+        queue: "DOCUMENT_BASIC_REVIEW",
         priority: "HIGH",
       });
       await audit({
@@ -1178,18 +1190,13 @@ async function processChatRaw(input: ChatInput): Promise<ChatReply> {
       await persist(session, "SUBMITTED", context);
       return replyForStep({ ...session, workflow_step: "SUBMITTED" }, context, {
         progress: 100,
-        status: "OFFICIAL_CERTIFICATION_REQUIRED",
+        status: "DOCUMENTS_UNDER_REVIEW",
       });
     }
     case "SUBMITTED": {
-      if (value === "MENU_STATUS") {
-        return replyForStep(session, context, {
-          message: `Case ${await caseReference(session.case_id)} is waiting for official certification and municipal assessment.`,
-          progress: 100,
-          status: "OFFICIAL_CERTIFICATION_REQUIRED",
-        });
-      }
-      return replyForStep(session, context);
+      const record = await database().prepare("SELECT current_state FROM cases WHERE id = ?").bind(session.case_id).first<{ current_state: string }>();
+      const { recommendationText } = await import("./notifications");
+      return replyForStep(session, context, { message: recommendationText(record?.current_state || "DOCUMENTS_UNDER_REVIEW", context.language || "en"), status: record?.current_state || "DOCUMENTS_UNDER_REVIEW", progress: 100 });
     }
     default:
       return replyForStep(session, context);

@@ -105,6 +105,7 @@ export async function createCase(input: {
       now
     )
     .run();
+  await (await import("./notifications")).queueRecommendation(input.id, "APPLICATION_IN_PROGRESS");
 }
 
 export async function updateCase(
@@ -142,6 +143,11 @@ export async function updateCase(
       caseId
     )
     .run();
+  if (values.state && values.state !== current.current_state) {
+    await audit({ caseId, actorType: "SYSTEM", eventCode: "APPLICATION_STATUS_CHANGED", entityType: "CASE", entityId: caseId, detail: { previous: current.current_state, current: values.state } });
+    await (await import("./notifications")).queueRecommendation(caseId, values.state);
+  }
+
 }
 
 export async function addPerson(input: {

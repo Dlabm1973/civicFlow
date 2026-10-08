@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { audit, database, isoNow } from "./repository";
+import { audit, database, isoNow, updateCase } from "./repository";
 
 const ALLOWED = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -33,10 +33,11 @@ export async function storeDocument(input: {
     throw new Error("The file must be between 1 byte and 10 MB");
   }
   const caseRow = await database()
-    .prepare("SELECT id FROM cases WHERE id = ? LIMIT 1")
+    .prepare("SELECT id,current_state,submitted_at FROM cases WHERE id = ? LIMIT 1")
     .bind(input.caseId)
-    .first<{ id: string }>();
+    .first<{ id: string; current_state:string; submitted_at:string | null }>();
   if (!caseRow) throw new Error("Case not found");
+  if (["VETTING_IN_PROGRESS","OUTCOME_APPROVED","OUTCOME_DECLINED"].includes(caseRow.current_state)) throw new Error("The application has been forwarded. Await the reviewer’s information request before replacing documents.");
 
   let personId = input.personId ?? null;
   if (input.requirementId) {
@@ -100,6 +101,7 @@ export async function storeDocument(input: {
       contentHash,
     },
   });
+  if (caseRow.submitted_at) await updateCase(input.caseId,{state:"DOCUMENTS_UNDER_REVIEW",assignedQueue:"DOCUMENT_BASIC_REVIEW"});
   return { documentId, status: "UPLOADED_PENDING_REVIEW" };
 }
 

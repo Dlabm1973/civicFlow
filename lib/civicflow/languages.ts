@@ -6,6 +6,23 @@ type Translation = [string, string, string, string];
 // Each entry preserves the English source and the same numbered interpolation slots.
 // Draft municipal wording: keep translations versioned and review before public launch.
 export const translations: Record<string, Translation> = {
+  "Change language": ["Verander taal", "Shintsha ulimi", "Tjhugulula ilimi", "Fetola puo"],
+  "Choose your language.": ["Kies jou taal.", "Khetha ulimi lwakho.", "Khetha ilimi lakho.", "Kgetha puo ya hao."],
+  "Application status": ["Aansoekstatus", "Isimo sesicelo", "Ubujamo besibawo", "Boemo ba kopo"],
+  "Outcome": ["Uitslag", "Umphumela", "Umphumela", "Sephetho"],
+  "Status recorded": ["Status aangeteken", "Isimo sirekhodiwe", "Ubujamo burekhodiwe", "Boemo bo ngotswe"],
+  "Application in progress": ["Aansoek aan die gang", "Isicelo siyaqhubeka", "Isibawo siyaragela phambili", "Kopo e ntse e tswela pele"],
+  "Documents requested": ["Dokumente aangevra", "Kucelwa amaphepha", "Kucelwa amaphepha", "Ditokomane di kopilwe"],
+  "Clearer or complete documents requested": ["Duideliker of volledige dokumente aangevra", "Kucelwa amaphepha acacile noma aphelele", "Kucelwa amaphepha acacileko namkha apheleleko", "Ho kopilwe ditokomane tse hlakileng kapa tse felletseng"],
+  "Documents under basic review": ["Dokumente onder basiese hersiening", "Amaphepha ayahlolwa ngokuyisisekelo", "Amaphepha ayahlolwa ngokusisekelo", "Ditokomane di hlahlojwa ka motheo"],
+  "Ready for submission": ["Gereed vir indiening", "Silungele ukuthunyelwa", "Silungele ukuthunyelwa", "E loketse ho romelwa"],
+  "Ready for external vetting": ["Gereed vir eksterne keuring", "Silungele ukuhlolwa kwangaphandle", "Silungele ukuhlolwa kwangaphandle", "E loketse tlhahlobo ya kantle"],
+  "External vetting in progress": ["Eksterne keuring aan die gang", "Ukuhlolwa kwangaphandle kuyaqhubeka", "Ukuhlolwa kwangaphandle kuyaragela phambili", "Tlhahlobo ya kantle e ntse e tswela pele"],
+  "Further information required by the vetting reviewer": ["Verdere inligting deur die keuringsbeoordelaar benodig", "Umhloli udinga imininingwane eyengeziwe", "Umhloli ufuna ilwazi elingeziweko", "Mohlahlobi o hloka tlhahisoleseding e eketsehileng"],
+  "CivicFlow checks document completeness and readability. Legal vetting and the application decision are handled separately.": ["CivicFlow kontroleer of dokumente volledig en leesbaar is. Regskeuring en die aansoekbesluit word afsonderlik hanteer.", "I-CivicFlow ihlola ukuthi amaphepha aphelele futhi ayafundeka. Ukuhlolwa kwezomthetho nesinqumo sesicelo kwenziwa ngokwehlukana.", "I-CivicFlow ihlola bona amaphepha aphelele begodu ayafundeka. Ukuhlolwa komthetho nesiqunto sesibawo kwenziwa ngokuhlukana.", "CivicFlow e hlahloba hore ditokomane di felletse ebile di baleha. Tlhahlobo ya molao le qeto ya kopo di etswa ka thoko."],
+  "This outcome was returned by the external vetting system or authorised manual reviewer. CivicFlow is reporting that result.": ["Hierdie uitslag is deur die eksterne keuringstelsel of gemagtigde handbeoordelaar teruggestuur. CivicFlow rapporteer daardie uitslag.", "Lo mphumela ubuyiswe uhlelo lokuhlola lwangaphandle noma umhloli ogunyaziwe. I-CivicFlow ibika lowo mphumela.", "Umphumela lo ubuyiswe lihlelo lokuhlola langaphandle namkha umhloli ovunyelweko. I-CivicFlow ibika umphumela lowo.", "Sephetho sena se kgutlisitswe ke tsamaiso ya tlhahlobo ya kantle kapa mohlahlobi ya dumelletsweng. CivicFlow e tlaleha sephetho seo."],
+  "Your application has been submitted for basic document review. The external vetting system or authorised manual reviewer will decide the outcome.": ["Jou aansoek is vir basiese dokumenthersiening ingedien. Die eksterne keuringstelsel of gemagtigde handbeoordelaar sal die uitslag bepaal.", "Isicelo sakho sithunyelwe ukuhlolwa kwamaphepha okuyisisekelo. Uhlelo lwangaphandle noma umhloli ogunyaziwe uzonquma umphumela.", "Isibawo sakho sithunyelwe ukuhlolwa kwamaphepha okusisekelo. Ihlelo langaphandle namkha umhloli ovunyelweko uzokuqunta umphumela.", "Kopo ya hao e rometswe bakeng sa tlhahlobo ya motheo ya ditokomane. Tsamaiso ya kantle kapa mohlahlobi ya dumelletsweng o tla etsa qeto."],
+
   "Main menu": ["Hoofkieslys", "Imenyu enkulu", "Imenyu ekulu", "Lenane le leholo"],
   "Continue my application": ["Gaan voort met my aansoek", "Qhubeka nesicelo sami", "Ragela phambili nesibawo sami", "Tswela pele ka kopo ya ka"],
   "Recommendation": ["Aanbeveling", "Isincomo", "Isiphakamiso", "Kgothaletso"],
@@ -56,7 +73,6 @@ export const translations: Record<string, Translation> = {
   "Report a change": ["Meld ’n verandering", "Bika ushintsho", "Bika itjhuguluko", "Tlaleha phetoho"],
   "Appeal a decision": ["Teken appèl teen ’n besluit aan", "Dlulisa isikhalo ngesinqumo", "Dlulisa isililo ngesiqunto", "Etsa boipiletso ka qeto"],
   "I need help": ["Ek het hulp nodig", "Ngidinga usizo", "Ngitlhoga isizo", "Ke hloka thuso"],
-  "Change language": ["Verander taal", "Shintsha ulimi", "Tjhugulula ilimi", "Fetola puo"],
   "Choose an option": ["Kies ’n opsie", "Khetha", "Khetha", "Kgetha"],
   "Choose an option to continue.": ["Kies ’n opsie om voort te gaan.", "Khetha ukuze uqhubeke.", "Khetha bona uragele phambili.", "Kgetha ho tswela pele."],
   "Reference": ["Verwysing", "Inombolo yesicelo", "Inomboro yesibawo", "Nomoro ya kopo"],

@@ -165,3 +165,13 @@ export const whatsappNotifications = sqliteTable("whatsapp_notifications", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, table => [index("idx_notifications_case").on(table.caseId, table.createdAt), uniqueIndex("idx_notifications_provider").on(table.providerMessageId)]);
+
+export const documentReviews = sqliteTable('document_reviews', {
+  id: text('id').primaryKey(), documentId: text('document_id').notNull(), caseId: text('case_id').notNull(), status: text('status').notNull(), checklistJson: text('checklist_json').notNull(), reason: text('reason'), reviewer: text('reviewer').notNull(), createdAt: text('created_at').notNull(),
+});
+export const vettingHandoffs = sqliteTable('vetting_handoffs', {
+  id: text('id').primaryKey(), caseId: text('case_id').notNull(), target: text('target').notNull(), status: text('status').notNull(), packetJson: text('packet_json').notNull(), externalReference: text('external_reference'), createdBy: text('created_by').notNull(), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+});
+export const vettingOutcomes = sqliteTable('vetting_outcomes', {
+  id: text('id').primaryKey(), handoffId: text('handoff_id').notNull(), outcome: text('outcome').notNull(), reason: text('reason'), actor: text('actor').notNull(), createdAt: text('created_at').notNull(),
+});

@@ -1,4 +1,5 @@
-import { dispatchRecommendation, latestNotification, queueRecommendation } from "@/lib/civicflow/notifications";
+import { checklist } from "@/lib/civicflow/review";
+import { latestNotification, retryCaseNotifications } from "@/lib/civicflow/notifications";
 import { NextResponse } from "next/server";
 import { addTask, audit, database, updateCase } from "@/lib/civicflow/repository";
 import { requireStaff } from "@/lib/civicflow/staff-auth";
@@ -22,6 +23,9 @@ async function details(id: string) {
     incomes: incomes.results ?? [],
     requirements: requirements.results ?? [],
     documents: documents.results ?? [],
+    checklists: Object.fromEntries((requirements.results ?? []).map(r => [String(r.id), checklist(String(r.requirement_code))])),
+    handoffs: (await db.prepare("SELECT id,target,status,external_reference,created_at FROM vetting_handoffs WHERE case_id=? ORDER BY created_at DESC,rowid DESC").bind(id).all()).results ?? [],
+    notifications: (await db.prepare("SELECT case_state,status,created_at,error FROM whatsapp_notifications WHERE case_id=? ORDER BY created_at DESC,rowid DESC LIMIT 100").bind(id).all()).results ?? [],
     tasks: tasks.results ?? [],
     events: events.results ?? [],
     notification: await latestNotification(id),
@@ -51,16 +55,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const existing = await database().prepare("SELECT current_state FROM cases WHERE id = ?").bind(id).first<{ current_state: string }>();
     if (!existing) return NextResponse.json({ error: "Case not found" }, { status: 404 });
     if (action === "RETRY_NOTIFICATION") {
-      const pending = await latestNotification(id);
-      if (pending) await dispatchRecommendation(pending.id);
+      await retryCaseNotifications(id);
       return NextResponse.json(await details(id));
     }
+    if (existing.current_state === "VETTING_IN_PROGRESS" || existing.current_state.startsWith("OUTCOME_")) return NextResponse.json({error:"Record the result through the external vetting panel"}, {status:400});
     const actionMap: Record<string, { state: string; queue: string; event: string }> = {
       REQUEST_INFORMATION: { state: "INFORMATION_REQUIRED", queue: "CASEWORK", event: "INFORMATION_REQUESTED" },
-      ORDER_SITE_VISIT: { state: "SITE_VISIT_REQUIRED", queue: "FIELD_VERIFICATION", event: "SITE_VISIT_REQUESTED" },
-      RECOMMEND_APPROVAL: { state: "RECOMMENDED_APPROVAL", queue: "DECISION_AUTHORITY", event: "RECOMMENDATION_RECORDED" },
-      RECOMMEND_DECLINE: { state: "RECOMMENDED_DECLINE", queue: "DECISION_AUTHORITY", event: "RECOMMENDATION_RECORDED" },
-      RETURN_ASSESSMENT: { state: "UNDER_ASSESSMENT", queue: "CASEWORK", event: "CASE_RETURNED_TO_ASSESSMENT" },
+
+
+      RETURN_ASSESSMENT: { state: "DOCUMENTS_UNDER_REVIEW", queue: "CASEWORK", event: "CASE_RETURNED_TO_ASSESSMENT" },
     };
     const target = actionMap[action];
     if (!target) return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
@@ -80,7 +83,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       entityId: id,
       detail: { action, reason: body.reason || null },
     });
-    if (existing.current_state !== target.state) await queueRecommendation(id, target.state);
+
     return NextResponse.json(await details(id));
   } catch (error) {
     if (error instanceof Response) return error;

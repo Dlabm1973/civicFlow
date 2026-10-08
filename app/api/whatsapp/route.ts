@@ -99,7 +99,7 @@ export async function POST(request: Request) {
             continue;
           }
           const requirements = await getRequirements(session.case_id);
-          const outstanding = requirements.filter((item) => item.status === "OUTSTANDING");
+          const outstanding = requirements.filter((item) => ["OUTSTANDING", "BASIC_REUPLOAD_REQUIRED"].includes(item.status));
           const context = parseContext(session);
           const requirement = context.selectedRequirementId
             ? outstanding.find((item) => item.id === context.selectedRequirementId)
